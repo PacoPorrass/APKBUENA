@@ -17,7 +17,10 @@ sealed class AuthResult {
 object TokenManager {
 
     // ✅ SOLO USER.READ (evita admin consent)
-    val SCOPES = arrayOf("User.Read")
+    val SCOPES = arrayOf(
+    "User.Read",
+    "Files.ReadWrite"
+)
 
     private var msalApp: ISingleAccountPublicClientApplication? = null
 
