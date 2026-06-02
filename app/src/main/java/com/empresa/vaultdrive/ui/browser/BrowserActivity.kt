@@ -1,387 +1,91 @@
-package com.empresa.vaultdrive.ui.browser
+package com.empresa.vaultdrive.data.api
 
-import android.Manifest
-import android.app.Activity
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
-import android.os.Bundle
-import android.provider.OpenableColumns
-import android.view.View
-import android.widget.EditText
-import android.widget.LinearLayout
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
-import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
-import com.google.android.material.snackbar.Snackbar
-import com.empresa.vaultdrive.R
-import com.empresa.vaultdrive.core.security.Prefs
-import com.empresa.vaultdrive.core.session.TokenManager
-import com.empresa.vaultdrive.data.model.FileItem
-import com.empresa.vaultdrive.data.model.Result
-import com.empresa.vaultdrive.data.repository.Repository
-import com.empresa.vaultdrive.databinding.ActivityBrowserBinding
-import com.empresa.vaultdrive.ui.auth.AuthActivity
-import kotlinx.coroutines.launch
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.empresa.vaultdrive.data.model.*
+import okhttp3.OkHttpClient
+import okhttp3.RequestBody
+import retrofit2.Response
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.http.*
+import java.util.concurrent.TimeUnit
 
-class BrowserActivity : AppCompatActivity() {
+interface OneDriveApi {
 
-    private lateinit var b: ActivityBrowserBinding
-    private lateinit var repo: Repository
-    private lateinit var adapter: FileAdapter
+    // ✅ ROOT (ESTE ES EL MÁS IMPORTANTE - evita 404)
+    @GET("v1.0/me/drive/root/children")
+    suspend fun getRootChildren(
+        @Header("Authorization") token: String,
+        @Query("\$select") select: String =
+            "id,name,folder,file,size,lastModifiedDateTime,@microsoft.graph.downloadUrl",
+        @Query("\$orderby") order: String = "name asc"
+    ): Response<DriveItemListResponse>
 
-    // Breadcrumb: cada entry guarda el folder + su driveId (para carpetas compartidas)
-    data class BreadcrumbEntry(val item: FileItem, val driveId: String?)
-    private val breadcrumb = ArrayDeque<BreadcrumbEntry>()
-    private var currentFolder: FileItem? = null
-    private var currentDriveId: String? = null  // null = drive propio
-    private var pendingCameraUri: Uri? = null
-    private var pendingCameraFile: File? = null
+    // 📂 CARPETAS
+    @GET("v1.0/me/drive/items/{itemId}/children")
+    suspend fun getChildren(
+        @Header("Authorization") token: String,
+        @Path("itemId") itemId: String,
+        @Query("\$select") select: String =
+            "id,name,folder,file,size,lastModifiedDateTime,@microsoft.graph.downloadUrl",
+        @Query("\$orderby") order: String = "name asc"
+    ): Response<DriveItemListResponse>
 
-    // ── Launchers ─────────────────────────────────────────────────────
+    // 📂 COMPARTIDOS
+    @GET("v1.0/me/drive/sharedWithMe")
+    suspend fun getSharedWithMe(
+        @Header("Authorization") token: String,
+        @Query("\$select") select: String =
+            "id,name,folder,file,size,lastModifiedDateTime,remoteItem"
+    ): Response<DriveItemListResponse>
 
-    private val pickLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val data = result.data ?: return@registerForActivityResult
-            val uris = data.clipData?.let { c -> (0 until c.itemCount).map { c.getItemAt(it).uri } }
-                ?: listOfNotNull(data.data)
-            if (uris.size == 1) askRenameAndUpload(uris[0])
-            else uris.forEach { uploadFile(it, null) }
-        }
+    // 📁 CARPETA EN DRIVE ESPECÍFICO
+    @GET("v1.0/drives/{driveId}/items/{itemId}/children")
+    suspend fun getChildrenByDrive(
+        @Header("Authorization") token: String,
+        @Path("driveId") driveId: String,
+        @Path("itemId") itemId: String,
+        @Query("\$select") select: String =
+            "id,name,folder,file,size,lastModifiedDateTime,@microsoft.graph.downloadUrl"
+    ): Response<DriveItemListResponse>
+
+    // 📁 CREAR CARPETA
+    @POST("v1.0/me/drive/items/{parentId}/children")
+    suspend fun createFolder(
+        @Header("Authorization") token: String,
+        @Path("parentId") parentId: String,
+        @Body body: CreateFolderRequest
+    ): Response<DriveItem>
+
+    // ⬆️ UPLOAD SIMPLE
+    @PUT("v1.0/me/drive/items/{parentId}:/{fileName}:/content")
+    suspend fun uploadSmall(
+        @Header("Authorization") token: String,
+        @Path("parentId") parentId: String,
+        @Path("fileName", encoded = false) fileName: String,
+        @Body content: RequestBody
+    ): Response<DriveItem>
+
+    // ⬆️ UPLOAD GRANDE
+    @POST("v1.0/me/drive/items/{parentId}:/{fileName}:/createUploadSession")
+    suspend fun createUploadSession(
+        @Header("Authorization") token: String,
+        @Path("parentId") parentId: String,
+        @Path("fileName", encoded = false) fileName: String,
+        @Body body: UploadSessionRequest
+    ): Response<UploadSession>
+
+    companion object {
+        fun create(): OneDriveApi =
+            Retrofit.Builder()
+                .baseUrl("https://graph.microsoft.com/")
+                .client(
+                    OkHttpClient.Builder()
+                        .connectTimeout(15, TimeUnit.SECONDS)
+                        .readTimeout(30, TimeUnit.SECONDS)
+                        .build()
+                )
+                .addConverterFactory(GsonConverterFactory.create())
+                .build()
+                .create(OneDriveApi::class.java)
     }
-
-    private val cameraLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        if (success) {
-            val uri = pendingCameraUri ?: return@registerForActivityResult
-            val default = "Foto_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.jpg"
-            askRenameBeforeUpload(uri, default)
-        }
-        pendingCameraFile?.delete(); pendingCameraFile = null
-    }
-
-    private val permLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-        if (results.values.all { it }) openPicker() else snack("Se necesitan permisos de galería")
-    }
-
-    private val cameraPermLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) launchCamera() else snack("Se necesita permiso de cámara")
-    }
-
-    // ── Lifecycle ──────────────────────────────────────────────────────
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        b = ActivityBrowserBinding.inflate(layoutInflater)
-        setContentView(b.root)
-        repo = Repository(this)
-        setupRecycler()
-        setupButtons()
-        updatePinnedCard()
-        loadFolder("root", null)
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (breadcrumb.isNotEmpty()) navigateUp() else super.onBackPressed()
-    }
-
-    // ── Setup ──────────────────────────────────────────────────────────
-
-    private fun setupRecycler() {
-        adapter = FileAdapter(
-            onClick = { item ->
-                if (item.isFolder) {
-                    // Si es carpeta compartida, extraer driveId del remoteItem
-                    val driveId = if (item.isShared) extractDriveId(item) else currentDriveId
-                    openFolder(item, driveId)
-                }
-            },
-            onLongClick = { item -> showItemMenu(item) }
-        )
-        b.rvFiles.layoutManager = LinearLayoutManager(this)
-        b.rvFiles.adapter = adapter
-        b.swipeRefresh.setOnRefreshListener { refresh() }
-    }
-
-    private fun setupButtons() {
-        b.btnBack.setOnClickListener { navigateUp() }
-        b.fabCamera.setOnClickListener { checkCameraAndLaunch() }
-        b.fabUpload.setOnClickListener { checkPermAndPick() }
-        b.fabNewFolder.setOnClickListener { showCreateFolderDialog() }
-        b.tvUserName.text = Prefs.userName.substringBefore("@")
-        b.btnSignOut.setOnClickListener { confirmSignOut() }
-        b.btnShared.setOnClickListener { loadSharedFolders() }
-        b.cardPinned.setOnClickListener {
-            val id = Prefs.pinnedFolderId; val name = Prefs.pinnedFolderName; val driveId = Prefs.pinnedDriveId
-            if (id.isNotBlank()) openFolder(FileItem(id, name, true), driveId.ifBlank { null })
-        }
-    }
-
-    // ── Carpetas compartidas ───────────────────────────────────────────
-
-    private fun loadSharedFolders() {
-        lifecycleScope.launch {
-            b.swipeRefresh.isRefreshing = true
-            val token = getToken() ?: return@launch
-            when (val r = repo.getSharedWithMe(token)) {
-                is Result.Success -> {
-                    // Mostramos desde raíz de compartidos
-                    breadcrumb.clear()
-                    currentFolder = FileItem("shared_root", "Compartido conmigo", true)
-                    currentDriveId = null
-                    b.tvCurrentFolder.text = "Compartido conmigo"
-                    b.btnBack.visibility = View.VISIBLE
-                    b.cardPinned.visibility = View.GONE
-                    adapter.submitList(r.data)
-                    b.tvEmpty.visibility = if (r.data.isEmpty()) View.VISIBLE else View.GONE
-                }
-                is Result.Error -> snack(r.message)
-            }
-            b.swipeRefresh.isRefreshing = false
-        }
-    }
-
-    // ── Navegación ─────────────────────────────────────────────────────
-
-    private fun openFolder(folder: FileItem, driveId: String?) {
-        val cur = currentFolder
-        val curDrive = currentDriveId
-        if (cur != null) breadcrumb.addLast(BreadcrumbEntry(cur, curDrive))
-        else breadcrumb.addLast(BreadcrumbEntry(FileItem("root", "Inicio", true), null))
-        currentFolder = folder
-        currentDriveId = driveId
-        b.tvCurrentFolder.text = folder.name
-        b.btnBack.visibility = View.VISIBLE
-        b.cardPinned.visibility = View.GONE
-        loadFolder(folder.id, driveId)
-    }
-
-    private fun navigateUp() {
-        if (breadcrumb.isEmpty()) return
-        val parent = breadcrumb.removeLast()
-        currentFolder = if (parent.item.id == "root") null else parent.item
-        currentDriveId = parent.driveId
-        b.tvCurrentFolder.text = currentFolder?.name ?: "Mi OneDrive"
-        b.btnBack.visibility = if (breadcrumb.isEmpty() && currentFolder == null) View.GONE else View.VISIBLE
-        if (breadcrumb.isEmpty() && currentFolder == null) updatePinnedCard()
-        loadFolder(currentFolder?.id ?: "root", currentDriveId)
-    }
-
-    private fun refresh() = loadFolder(currentFolder?.id ?: "root", currentDriveId)
-
-    private fun loadFolder(folderId: String, driveId: String?) {
-        if (folderId == "shared_root") { loadSharedFolders(); return }
-        lifecycleScope.launch {
-            b.swipeRefresh.isRefreshing = true
-            val token = getToken() ?: return@launch
-            when (val r = repo.getChildren(token, folderId, driveId)) {
-                is Result.Success -> {
-                    adapter.submitList(r.data)
-                    b.tvEmpty.visibility = if (r.data.isEmpty()) View.VISIBLE else View.GONE
-                }
-                is Result.Error -> snack(r.message)
-            }
-            b.swipeRefresh.isRefreshing = false
-        }
-    }
-
-    // ── Card carpeta fijada ───────────────────────────────────────────
-
-    private fun updatePinnedCard() {
-        val id = Prefs.pinnedFolderId; val name = Prefs.pinnedFolderName
-        if (id.isNotBlank() && currentFolder == null) {
-            b.cardPinned.visibility = View.VISIBLE
-            b.tvPinnedName.text = name
-            b.tvPinnedSub.text = "Toca para abrir tu carpeta"
-        } else {
-            b.cardPinned.visibility = View.GONE
-        }
-    }
-
-    // ── Menú item ─────────────────────────────────────────────────────
-
-    private fun showItemMenu(item: FileItem) {
-        val options = mutableListOf<String>()
-        if (item.isFolder) options.add("📌 Fijar como carpeta principal")
-        options.add("✏️ Renombrar")
-        AlertDialog.Builder(this, R.style.VaultDialog)
-            .setTitle(item.name)
-            .setItems(options.toTypedArray()) { _, idx ->
-                when (options[idx]) {
-                    "📌 Fijar como carpeta principal" -> {
-                        Prefs.pinnedFolderId = item.id
-                        Prefs.pinnedFolderName = item.name
-                        Prefs.pinnedDriveId = currentDriveId ?: ""
-                        updatePinnedCard()
-                        snack("\"${item.name}\" fijada como carpeta principal ✓")
-                    }
-                    "✏️ Renombrar" -> showRenameDialog(item)
-                }
-            }.show()
-    }
-
-    private fun showRenameDialog(item: FileItem) {
-        val ext = if (!item.isFolder && item.name.contains('.')) ".${item.name.substringAfterLast('.')}" else ""
-        val base = if (ext.isNotEmpty()) item.name.substringBeforeLast('.') else item.name
-        val et = EditText(this).apply {
-            setText(base); setTextColor(getColor(R.color.text_primary))
-            setHintTextColor(getColor(R.color.text_secondary)); background = null; selectAll()
-        }
-        AlertDialog.Builder(this, R.style.VaultDialog).setTitle("Renombrar")
-            .setView(LinearLayout(this).apply { setPadding(64, 24, 64, 0); addView(et) })
-            .setPositiveButton("Guardar") { _, _ ->
-                val newName = et.text.toString().trim() + ext
-                if (newName.isNotBlank() && newName != item.name)
-                    snack("Renombrado a \"$newName\"")
-            }
-            .setNegativeButton("Cancelar", null).show()
-    }
-
-    // ── Crear carpeta ─────────────────────────────────────────────────
-
-    private fun showCreateFolderDialog() {
-        val et = EditText(this).apply {
-            hint = "Nombre de la carpeta"; setTextColor(getColor(R.color.text_primary))
-            setHintTextColor(getColor(R.color.text_secondary)); background = null
-        }
-        AlertDialog.Builder(this, R.style.VaultDialog).setTitle("Nueva carpeta")
-            .setView(LinearLayout(this).apply { setPadding(64, 24, 64, 0); addView(et) })
-            .setPositiveButton("Crear") { _, _ ->
-                val name = et.text.toString().trim()
-                if (name.isNotBlank()) createFolder(name) else snack("El nombre no puede estar vacío")
-            }
-            .setNegativeButton("Cancelar", null).show()
-    }
-
-    private fun createFolder(name: String) {
-        lifecycleScope.launch {
-            val token = getToken() ?: return@launch
-            when (val r = repo.createFolder(token, currentFolder?.id ?: "root", name)) {
-                is Result.Success -> { snack("Carpeta \"$name\" creada ✓"); refresh() }
-                is Result.Error -> snack(r.message)
-            }
-        }
-    }
-
-    // ── Cámara ────────────────────────────────────────────────────────
-
-    private fun checkCameraAndLaunch() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
-            launchCamera()
-        else cameraPermLauncher.launch(Manifest.permission.CAMERA)
-    }
-
-    private fun launchCamera() {
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        val tmp = File(cacheDir, "cam_$stamp.jpg").also { pendingCameraFile = it }
-        val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", tmp)
-        pendingCameraUri = uri
-        cameraLauncher.launch(uri)
-    }
-
-    private fun askRenameBeforeUpload(uri: Uri, defaultName: String) {
-        val base = defaultName.substringBeforeLast('.')
-        val et = EditText(this).apply {
-            setText(base); setTextColor(getColor(R.color.text_primary))
-            setHintTextColor(getColor(R.color.text_secondary)); background = null; selectAll()
-        }
-        AlertDialog.Builder(this, R.style.VaultDialog).setTitle("Nombre de la foto")
-            .setMessage("Puedes cambiar el nombre antes de subir:")
-            .setView(LinearLayout(this).apply { setPadding(64, 24, 64, 0); addView(et) })
-            .setPositiveButton("Subir") { _, _ ->
-                val name = (et.text.toString().trim().ifBlank { base }) + ".jpg"
-                uploadFile(uri, name)
-            }
-            .setNegativeButton("Cancelar", null).setCancelable(false).show()
-    }
-
-    private fun askRenameAndUpload(uri: Uri) {
-        val orig = getFileName(uri)
-        val ext = if (orig.contains('.')) ".${orig.substringAfterLast('.')}" else ""
-        val base = orig.substringBeforeLast('.')
-        val et = EditText(this).apply {
-            setText(base); setTextColor(getColor(R.color.text_primary))
-            setHintTextColor(getColor(R.color.text_secondary)); background = null; selectAll()
-        }
-        AlertDialog.Builder(this, R.style.VaultDialog).setTitle("Nombre del archivo")
-            .setView(LinearLayout(this).apply { setPadding(64, 24, 64, 0); addView(et) })
-            .setPositiveButton("Subir") { _, _ ->
-                val name = (et.text.toString().trim().ifBlank { base }) + ext
-                uploadFile(uri, name)
-            }
-            .setNegativeButton("Subir sin renombrar") { _, _ -> uploadFile(uri, null) }.show()
-    }
-
-    // ── Upload ────────────────────────────────────────────────────────
-
-    private fun uploadFile(uri: Uri, customName: String?) {
-        lifecycleScope.launch {
-            val token = getToken() ?: return@launch
-            val parentId = currentFolder?.id ?: Prefs.pinnedFolderId.ifBlank { "root" }
-            b.layoutUploadProgress.visibility = View.VISIBLE
-            b.uploadBar.visibility = View.VISIBLE
-            b.tvUploadPct.visibility = View.VISIBLE
-            when (val r = repo.uploadFile(token, parentId, uri, customName) { pct ->
-                runOnUiThread { b.uploadBar.progress = pct; b.tvUploadPct.text = "$pct%" }
-            }) {
-                is Result.Success -> { snack("\"${customName ?: "Archivo"}\" subido ✓"); refresh() }
-                is Result.Error -> snack(r.message)
-            }
-            b.layoutUploadProgress.visibility = View.GONE
-        }
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────
-
-    private fun extractDriveId(item: FileItem): String? = null // remoteItem driveId viene del modelo
-
-    private fun getFileName(uri: Uri): String {
-        var name = "file_${System.currentTimeMillis()}"
-        contentResolver.query(uri, null, null, null, null)?.use { c ->
-            val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (c.moveToFirst() && idx >= 0) name = c.getString(idx) ?: name
-        }
-        return name
-    }
-
-    private fun confirmSignOut() {
-        AlertDialog.Builder(this, R.style.VaultDialog).setTitle("Cerrar sesión")
-            .setMessage("¿Seguro que quieres cerrar sesión?")
-            .setPositiveButton("Sí") { _, _ -> TokenManager.signOut { startActivity(Intent(this, AuthActivity::class.java)); finish() } }
-            .setNegativeButton("Cancelar", null).show()
-    }
-
-    private suspend fun getToken(): String? {
-        if (Prefs.isTokenValid()) return Prefs.token
-        val r = TokenManager.refreshSilently()
-        if (r == null) { startActivity(Intent(this, AuthActivity::class.java)); finish() }
-        return r
-    }
-
-    private fun checkPermAndPick() {
-        val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
-        else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-        if (perms.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED })
-            openPicker() else permLauncher.launch(perms)
-    }
-
-    private fun openPicker() {
-        val i = Intent(Intent.ACTION_GET_CONTENT).apply {
-            type = "*/*"; putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*", "application/pdf"))
-        }
-        pickLauncher.launch(Intent.createChooser(i, "Seleccionar archivos"))
-    }
-
-    private fun snack(msg: String) = Snackbar.make(b.root, msg, Snackbar.LENGTH_LONG).show()
 }
