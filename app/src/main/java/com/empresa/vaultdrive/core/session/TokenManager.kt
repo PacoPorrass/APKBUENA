@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import com.microsoft.identity.client.*
 import com.microsoft.identity.client.exception.MsalException
-import com.empresa.vaultdrive.R
 import com.empresa.vaultdrive.core.security.Prefs
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
@@ -17,24 +16,24 @@ sealed class AuthResult {
 
 object TokenManager {
 
-    // ✅ PERMISOS CORREGIDOS (SIN ADMIN REQUIRED)
-    val SCOPES = arrayOf(
-        "User.Read"
-    )
+    // ✅ SOLO USER.READ (evita admin consent)
+    val SCOPES = arrayOf("User.Read")
 
     private var msalApp: ISingleAccountPublicClientApplication? = null
 
     fun init(context: Context, onReady: () -> Unit) {
         PublicClientApplication.createSingleAccountPublicClientApplication(
             context,
-            R.raw.msal_config,
+            com.empresa.vaultdrive.R.raw.msal_config,
             object : IPublicClientApplication.ISingleAccountApplicationCreatedListener {
+
                 override fun onCreated(app: ISingleAccountPublicClientApplication) {
                     msalApp = app
                     onReady()
                 }
 
                 override fun onError(e: MsalException) {
+                    msalApp = null
                     onReady()
                 }
             }
@@ -44,7 +43,8 @@ object TokenManager {
     suspend fun signIn(activity: Activity): AuthResult =
         suspendCancellableCoroutine { cont ->
 
-            val app = msalApp ?: run {
+            val app = msalApp
+            if (app == null) {
                 cont.resume(AuthResult.Error("MSAL no inicializado"))
                 return@suspendCancellableCoroutine
             }
@@ -54,12 +54,12 @@ object TokenManager {
                 override fun onSuccess(result: IAuthenticationResult) {
                     Prefs.token = result.accessToken
                     Prefs.tokenExpiry = result.expiresOn.time
-                    Prefs.userName = result.account.username ?: ""
+                    Prefs.userName = result.account?.username ?: ""
                     cont.resume(AuthResult.Success(result.accessToken))
                 }
 
                 override fun onError(e: MsalException) {
-                    cont.resume(AuthResult.Error(e.message ?: "Error de autenticación"))
+                    cont.resume(AuthResult.Error(e.localizedMessage ?: "Error MSAL"))
                 }
 
                 override fun onCancel() {
@@ -71,7 +71,8 @@ object TokenManager {
     suspend fun refreshSilently(): String? =
         suspendCancellableCoroutine { cont ->
 
-            val app = msalApp ?: run {
+            val app = msalApp
+            if (app == null) {
                 cont.resume(null)
                 return@suspendCancellableCoroutine
             }
@@ -101,12 +102,15 @@ object TokenManager {
                                 override fun onError(e: MsalException) {
                                     cont.resume(null)
                                 }
-
-                            }).build()
+                            })
+                            .build()
                     )
                 }
 
-                override fun onAccountChanged(p: IAccount?, c: IAccount?) {
+                override fun onAccountChanged(
+                    previousAccount: IAccount?,
+                    currentAccount: IAccount?
+                ) {
                     cont.resume(null)
                 }
 
@@ -117,8 +121,14 @@ object TokenManager {
         }
 
     fun signOut(onDone: () -> Unit) {
-        msalApp?.signOut(object :
-            ISingleAccountPublicClientApplication.SignOutCallback {
+        val app = msalApp
+        if (app == null) {
+            Prefs.clear()
+            onDone()
+            return
+        }
+
+        app.signOut(object : ISingleAccountPublicClientApplication.SignOutCallback {
 
             override fun onSignOut() {
                 Prefs.clear()
@@ -129,10 +139,6 @@ object TokenManager {
                 Prefs.clear()
                 onDone()
             }
-
-        }) ?: run {
-            Prefs.clear()
-            onDone()
-        }
+        })
     }
 }
