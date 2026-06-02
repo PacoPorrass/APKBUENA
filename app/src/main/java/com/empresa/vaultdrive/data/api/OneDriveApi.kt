@@ -11,7 +11,9 @@ import java.util.concurrent.TimeUnit
 
 interface OneDriveApi {
 
-    // 🔥 ROOT (ESTO ES LO MÁS ESTABLE - SIN 404)
+    // ─────────────────────────────────────────────
+    // ROOT
+    // ─────────────────────────────────────────────
     @GET("v1.0/me/drive/root/children")
     suspend fun getRootChildren(
         @Header("Authorization") token: String,
@@ -20,7 +22,9 @@ interface OneDriveApi {
         @Query("\$orderby") order: String = "name asc"
     ): Response<DriveItemListResponse>
 
-    // 🔥 CHILDREN POR ID (SOLO USAR SI ESTÁS SEGURO DEL ID)
+    // ─────────────────────────────────────────────
+    // CHILDREN NORMAL DRIVE
+    // ─────────────────────────────────────────────
     @GET("v1.0/me/drive/items/{itemId}/children")
     suspend fun getChildren(
         @Header("Authorization") token: String,
@@ -30,15 +34,21 @@ interface OneDriveApi {
         @Query("\$orderby") order: String = "name asc"
     ): Response<DriveItemListResponse>
 
-    // 🔥 CARPETAS COMPARTIDAS
+    // ─────────────────────────────────────────────
+    // SHARED WITH ME (IMPORTANTE)
+    // ─────────────────────────────────────────────
     @GET("v1.0/me/drive/sharedWithMe")
     suspend fun getSharedWithMe(
         @Header("Authorization") token: String,
         @Query("\$select") select: String =
-            "id,name,folder,file,size,lastModifiedDateTime,remoteItem"
+            "id,name,remoteItem",
+        @Query("\$expand") expand: String =
+            "remoteItem"
     ): Response<DriveItemListResponse>
 
-    // 🔥 DRIVE ESPECÍFICO (COMPARTIDOS AVANZADO)
+    // ─────────────────────────────────────────────
+    // DRIVE ESPECÍFICO (COMPARTIDOS ORGANIZACIÓN)
+    // ─────────────────────────────────────────────
     @GET("v1.0/drives/{driveId}/items/{itemId}/children")
     suspend fun getChildrenByDrive(
         @Header("Authorization") token: String,
@@ -49,7 +59,9 @@ interface OneDriveApi {
         @Query("\$orderby") order: String = "name asc"
     ): Response<DriveItemListResponse>
 
-    // 🔥 CREAR CARPETA
+    // ─────────────────────────────────────────────
+    // CREAR CARPETA
+    // ─────────────────────────────────────────────
     @POST("v1.0/me/drive/items/{parentId}/children")
     suspend fun createFolder(
         @Header("Authorization") token: String,
@@ -57,7 +69,9 @@ interface OneDriveApi {
         @Body body: CreateFolderRequest
     ): Response<DriveItem>
 
-    // 🔥 SUBIDA SIMPLE
+    // ─────────────────────────────────────────────
+    // UPLOAD SIMPLE
+    // ─────────────────────────────────────────────
     @PUT("v1.0/me/drive/items/{parentId}:/{fileName}:/content")
     suspend fun uploadSmall(
         @Header("Authorization") token: String,
@@ -66,7 +80,9 @@ interface OneDriveApi {
         @Body content: RequestBody
     ): Response<DriveItem>
 
-    // 🔥 UPLOAD GRANDE
+    // ─────────────────────────────────────────────
+    // UPLOAD GRANDE
+    // ─────────────────────────────────────────────
     @POST("v1.0/me/drive/items/{parentId}:/{fileName}:/createUploadSession")
     suspend fun createUploadSession(
         @Header("Authorization") token: String,
@@ -75,6 +91,9 @@ interface OneDriveApi {
         @Body body: UploadSessionRequest
     ): Response<UploadSession>
 
+    // ─────────────────────────────────────────────
+    // FACTORY
+    // ─────────────────────────────────────────────
     companion object {
 
         fun create(): OneDriveApi {
