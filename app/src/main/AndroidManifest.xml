@@ -19,43 +19,62 @@
         android:usesCleartextTraffic="false"
         tools:targetApi="31">
 
-        <activity android:name=".ui.splash.SplashActivity"
-            android:exported="true" android:noHistory="true">
+        <!-- SPLASH -->
+        <activity
+            android:name=".ui.splash.SplashActivity"
+            android:exported="true"
+            android:noHistory="true">
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
         </activity>
 
-        <activity android:name=".ui.auth.AuthActivity" android:exported="false"/>
+        <!-- AUTH -->
+        <activity
+            android:name=".ui.auth.AuthActivity"
+            android:exported="false"/>
 
-        <activity android:name=".ui.browser.BrowserActivity"
+        <!-- BROWSER -->
+        <activity
+            android:name=".ui.browser.BrowserActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
 
-        <activity android:name="com.microsoft.identity.client.BrowserTabActivity"
+        <!-- MSAL REDIRECT (CORRECTO) -->
+        <activity
+            android:name="com.microsoft.identity.client.BrowserTabActivity"
             android:exported="true">
-           <intent-filter>
-    <action android:name="android.intent.action.VIEW"/>
-    <category android:name="android.intent.category.DEFAULT"/>
-    <category android:name="android.intent.category.BROWSABLE"/>
 
-    <data
-        android:scheme="msauth"
-        android:host="com.empresa.vaultdrive"
-        android:path="/JyL6wKNfIOBQEtXiJeu7yPXvOWo="/>
-</intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+
+                <data
+                    android:scheme="msauth"
+                    android:host="com.empresa.vaultdrive"
+                    android:path="/JyL6wKNfIOBQEtXiJeu7yPXvOWo="/>
+            </intent-filter>
+
         </activity>
 
+        <!-- FILE PROVIDER -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
+
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"/>
+
         </provider>
 
     </application>
+
 </manifest>
