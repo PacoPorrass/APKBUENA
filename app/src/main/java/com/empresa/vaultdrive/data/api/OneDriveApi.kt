@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit
 
 interface OneDriveApi {
 
-    // ✅ RAÍZ DEL DRIVE (CORRECTO - EVITA 404)
+    // 🔥 ROOT (ESTO ES LO MÁS ESTABLE - SIN 404)
     @GET("v1.0/me/drive/root/children")
     suspend fun getRootChildren(
         @Header("Authorization") token: String,
@@ -20,7 +20,7 @@ interface OneDriveApi {
         @Query("\$orderby") order: String = "name asc"
     ): Response<DriveItemListResponse>
 
-    // ✅ CARPETAS O ARCHIVOS POR ID
+    // 🔥 CHILDREN POR ID (SOLO USAR SI ESTÁS SEGURO DEL ID)
     @GET("v1.0/me/drive/items/{itemId}/children")
     suspend fun getChildren(
         @Header("Authorization") token: String,
@@ -30,7 +30,7 @@ interface OneDriveApi {
         @Query("\$orderby") order: String = "name asc"
     ): Response<DriveItemListResponse>
 
-    // ✅ COMPARTIDOS (ME)
+    // 🔥 CARPETAS COMPARTIDAS
     @GET("v1.0/me/drive/sharedWithMe")
     suspend fun getSharedWithMe(
         @Header("Authorization") token: String,
@@ -38,7 +38,7 @@ interface OneDriveApi {
             "id,name,folder,file,size,lastModifiedDateTime,remoteItem"
     ): Response<DriveItemListResponse>
 
-    // ⚠️ IMPORTANTE: DRIVE ESPECÍFICO (COMPARTIDOS)
+    // 🔥 DRIVE ESPECÍFICO (COMPARTIDOS AVANZADO)
     @GET("v1.0/drives/{driveId}/items/{itemId}/children")
     suspend fun getChildrenByDrive(
         @Header("Authorization") token: String,
@@ -49,7 +49,7 @@ interface OneDriveApi {
         @Query("\$orderby") order: String = "name asc"
     ): Response<DriveItemListResponse>
 
-    // ✅ CREAR CARPETA
+    // 🔥 CREAR CARPETA
     @POST("v1.0/me/drive/items/{parentId}/children")
     suspend fun createFolder(
         @Header("Authorization") token: String,
@@ -57,7 +57,7 @@ interface OneDriveApi {
         @Body body: CreateFolderRequest
     ): Response<DriveItem>
 
-    // ✅ SUBIDA PEQUEÑA
+    // 🔥 SUBIDA SIMPLE
     @PUT("v1.0/me/drive/items/{parentId}:/{fileName}:/content")
     suspend fun uploadSmall(
         @Header("Authorization") token: String,
@@ -66,7 +66,7 @@ interface OneDriveApi {
         @Body content: RequestBody
     ): Response<DriveItem>
 
-    // ✅ UPLOAD SESSION (ARCHIVOS GRANDES)
+    // 🔥 UPLOAD GRANDE
     @POST("v1.0/me/drive/items/{parentId}:/{fileName}:/createUploadSession")
     suspend fun createUploadSession(
         @Header("Authorization") token: String,
@@ -77,18 +77,20 @@ interface OneDriveApi {
 
     companion object {
 
-        fun create(): OneDriveApi =
-            Retrofit.Builder()
+        fun create(): OneDriveApi {
+
+            val client = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .writeTimeout(120, TimeUnit.SECONDS)
+                .build()
+
+            return Retrofit.Builder()
                 .baseUrl("https://graph.microsoft.com/")
-                .client(
-                    OkHttpClient.Builder()
-                        .connectTimeout(15, TimeUnit.SECONDS)
-                        .readTimeout(30, TimeUnit.SECONDS)
-                        .writeTimeout(120, TimeUnit.SECONDS)
-                        .build()
-                )
+                .client(client)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()
                 .create(OneDriveApi::class.java)
+        }
     }
 }
