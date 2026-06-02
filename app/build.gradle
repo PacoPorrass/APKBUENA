@@ -18,7 +18,7 @@ android {
         buildConfigField "String", "TENANT_ID", '"ce41ecbd-c265-4b29-b346-e21bacf98945"'
 
         manifestPlaceholders = [
-            msalRedirectUri: "msauth://com.empresa.vaultdrive/JyL6wKNfIOBQEtXiJeu7yPXvOWo="
+                msalRedirectUri: "msauth://com.empresa.vaultdrive/JyL6wKNfIOBQEtXiJeu7yPXvOWo="
         ]
     }
 
@@ -28,7 +28,9 @@ android {
     }
 
     buildTypes {
-        debug { debuggable true }
+        debug {
+            debuggable true
+        }
 
         release {
             minifyEnabled false
@@ -61,8 +63,8 @@ dependencies {
 
     implementation 'androidx.security:security-crypto:1.0.0'
 
-    // 🔥 MSAL ACTUALIZADO (IMPORTANTE)
-    implementation 'com.microsoft.identity.client:msal:5.7.0'
+    // ✅ MSAL ESTABLE (IMPORTANTE)
+    implementation 'com.microsoft.identity.client:msal:4.12.0'
 
     implementation 'com.squareup.okhttp3:okhttp:4.11.0'
     implementation 'com.squareup.retrofit2:retrofit:2.9.0'
