@@ -35,15 +35,16 @@
 
         <activity android:name="com.microsoft.identity.client.BrowserTabActivity"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data
-                    android:host="com.empresa.vaultdrive"
-                    android:path="/gi1mL6gXo8UOoPxVgGvd6zEA"
-                    android:scheme="msauth"/>
-            </intent-filter>
+           <intent-filter>
+    <action android:name="android.intent.action.VIEW"/>
+    <category android:name="android.intent.category.DEFAULT"/>
+    <category android:name="android.intent.category.BROWSABLE"/>
+
+    <data
+        android:scheme="msauth"
+        android:host="com.empresa.vaultdrive"
+        android:path="/JyL6wKNfIOBQEtXiJeu7yPXvOWo="/>
+</intent-filter>
         </activity>
 
         <provider
