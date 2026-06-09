@@ -12,42 +12,51 @@ import java.util.concurrent.TimeUnit
 interface OneDriveApi {
 
     // ─────────────────────────────────────────────
-    // ROOT
+    // ROOT (OneDrive personal)
     // ─────────────────────────────────────────────
     @GET("v1.0/me/drive/root/children")
     suspend fun getRootChildren(
         @Header("Authorization") token: String,
         @Query("\$select") select: String =
-            "id,name,folder,file,size,lastModifiedDateTime,@microsoft.graph.downloadUrl",
+            "id,name,folder,file,size,lastModifiedDateTime,remoteItem,parentReference,@microsoft.graph.downloadUrl",
         @Query("\$orderby") order: String = "name asc"
     ): Response<DriveItemListResponse>
 
     // ─────────────────────────────────────────────
-    // CHILDREN NORMAL DRIVE
+    // CHILDREN (OneDrive personal)
     // ─────────────────────────────────────────────
     @GET("v1.0/me/drive/items/{itemId}/children")
     suspend fun getChildren(
         @Header("Authorization") token: String,
         @Path("itemId") itemId: String,
         @Query("\$select") select: String =
-            "id,name,folder,file,size,lastModifiedDateTime,@microsoft.graph.downloadUrl",
+            "id,name,folder,file,size,lastModifiedDateTime,remoteItem,parentReference,@microsoft.graph.downloadUrl",
         @Query("\$orderby") order: String = "name asc"
     ): Response<DriveItemListResponse>
 
     // ─────────────────────────────────────────────
-    // SHARED WITH ME (IMPORTANTE)
+    // SHARED WITH ME
     // ─────────────────────────────────────────────
     @GET("v1.0/me/drive/sharedWithMe")
     suspend fun getSharedWithMe(
         @Header("Authorization") token: String,
         @Query("\$select") select: String =
-            "id,name,remoteItem",
+            "id,name,remoteItem,parentReference",
         @Query("\$expand") expand: String =
             "remoteItem"
     ): Response<DriveItemListResponse>
 
     // ─────────────────────────────────────────────
-    // DRIVE ESPECÍFICO (COMPARTIDOS ORGANIZACIÓN)
+    // SHARE LINK → CONVERTIR URL EXTERNA (IMPORTANTE)
+    // ─────────────────────────────────────────────
+    @GET("v1.0/shares/{shareId}/driveItem")
+    suspend fun getDriveItemFromShare(
+        @Header("Authorization") token: String,
+        @Path("shareId") shareId: String
+    ): Response<DriveItem>
+
+    // ─────────────────────────────────────────────
+    // DRIVE EXTERNO (SharePoint / shared drives)
     // ─────────────────────────────────────────────
     @GET("v1.0/drives/{driveId}/items/{itemId}/children")
     suspend fun getChildrenByDrive(
@@ -55,7 +64,7 @@ interface OneDriveApi {
         @Path("driveId") driveId: String,
         @Path("itemId") itemId: String,
         @Query("\$select") select: String =
-            "id,name,folder,file,size,lastModifiedDateTime,@microsoft.graph.downloadUrl",
+            "id,name,folder,file,size,lastModifiedDateTime,remoteItem,parentReference,@microsoft.graph.downloadUrl",
         @Query("\$orderby") order: String = "name asc"
     ): Response<DriveItemListResponse>
 
@@ -70,7 +79,7 @@ interface OneDriveApi {
     ): Response<DriveItem>
 
     // ─────────────────────────────────────────────
-    // UPLOAD SIMPLE
+    // UPLOAD (OneDrive personal)
     // ─────────────────────────────────────────────
     @PUT("v1.0/me/drive/items/{parentId}:/{fileName}:/content")
     suspend fun uploadSmall(
@@ -81,11 +90,35 @@ interface OneDriveApi {
     ): Response<DriveItem>
 
     // ─────────────────────────────────────────────
-    // UPLOAD GRANDE
+    // UPLOAD (DRIVE COMPARTIDO)
+    // ─────────────────────────────────────────────
+    @PUT("v1.0/drives/{driveId}/items/{parentId}:/{fileName}:/content")
+    suspend fun uploadSmallShared(
+        @Header("Authorization") token: String,
+        @Path("driveId") driveId: String,
+        @Path("parentId") parentId: String,
+        @Path("fileName", encoded = false) fileName: String,
+        @Body content: RequestBody
+    ): Response<DriveItem>
+
+    // ─────────────────────────────────────────────
+    // UPLOAD SESSION (OneDrive)
     // ─────────────────────────────────────────────
     @POST("v1.0/me/drive/items/{parentId}:/{fileName}:/createUploadSession")
     suspend fun createUploadSession(
         @Header("Authorization") token: String,
+        @Path("parentId") parentId: String,
+        @Path("fileName", encoded = false) fileName: String,
+        @Body body: UploadSessionRequest
+    ): Response<UploadSession>
+
+    // ─────────────────────────────────────────────
+    // UPLOAD SESSION (SHARED DRIVE)
+    // ─────────────────────────────────────────────
+    @POST("v1.0/drives/{driveId}/items/{parentId}:/{fileName}:/createUploadSession")
+    suspend fun createUploadSessionShared(
+        @Header("Authorization") token: String,
+        @Path("driveId") driveId: String,
         @Path("parentId") parentId: String,
         @Path("fileName", encoded = false) fileName: String,
         @Body body: UploadSessionRequest
