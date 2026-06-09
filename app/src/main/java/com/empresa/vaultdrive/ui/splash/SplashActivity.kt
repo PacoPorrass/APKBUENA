@@ -1,4 +1,5 @@
 package com.empresa.vaultdrive.ui.splash
+
 import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
@@ -11,19 +12,42 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class SplashActivity : AppCompatActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         Prefs.init(this)
+
         lifecycleScope.launch {
+
             val start = System.currentTimeMillis()
             var ready = false
-            TokenManager.init(this@SplashActivity) { ready = true }
+
+            TokenManager.init(this@SplashActivity) {
+                ready = true
+            }
+
             val timeout = System.currentTimeMillis() + 3000
-            while (!ready && System.currentTimeMillis() < timeout) delay(50)
+            while (!ready && System.currentTimeMillis() < timeout) {
+                delay(50)
+            }
+
             val elapsed = System.currentTimeMillis() - start
             if (elapsed < 1200) delay(1200 - elapsed)
-            startActivity(Intent(this@SplashActivity,
-                if (Prefs.isTokenValid()) BrowserActivity::class.java else AuthActivity::class.java))
+
+            val nextActivity = if (
+                Prefs.isTokenValid() &&
+                !Prefs.token.isNullOrBlank()
+            ) {
+                BrowserActivity::class.java
+            } else {
+                AuthActivity::class.java
+            }
+
+            startActivity(
+                Intent(this@SplashActivity, nextActivity)
+            )
+
             finish()
         }
     }
