@@ -29,7 +29,7 @@ class Repository(private val context: Context) {
     private fun bearer(t: String) = "Bearer $t"
 
     // ─────────────────────────────────────────────
-    // LISTAR CARPETAS (ONE DRIVE + COMPARTIDOS)
+    // LISTAR CARPETAS
     // ─────────────────────────────────────────────
     suspend fun getChildren(
         token: String,
@@ -38,7 +38,6 @@ class Repository(private val context: Context) {
     ): Result<List<FileItem>> = withContext(Dispatchers.IO) {
 
         try {
-
             val resp = if (!driveId.isNullOrBlank()) {
                 api.getChildrenByDrive(bearer(token), driveId, folderId)
             } else {
@@ -50,17 +49,10 @@ class Repository(private val context: Context) {
             }
 
             val items = resp.body()?.value.orEmpty()
-
             val mapped = items.map { it.toFileItem() }
 
-            val fixed = mapped.map {
-                it.copy(
-                    isShared = it.remoteItem != null
-                )
-            }
-
             return@withContext Result.Success(
-                fixed.sortedWith(
+                mapped.sortedWith(
                     compareBy({ !it.isFolder }, { it.name.lowercase() })
                 )
             )
@@ -77,7 +69,6 @@ class Repository(private val context: Context) {
         withContext(Dispatchers.IO) {
 
             try {
-
                 val resp = api.getSharedWithMe(bearer(token))
 
                 if (!resp.isSuccessful) {
@@ -85,7 +76,6 @@ class Repository(private val context: Context) {
                 }
 
                 val items = resp.body()?.value.orEmpty()
-
                 val mapped = items.map { it.toFileItem() }
 
                 return@withContext Result.Success(
@@ -100,20 +90,18 @@ class Repository(private val context: Context) {
         }
 
     // ─────────────────────────────────────────────
-    // ABRIR LINK COMPARTIDO (SharePoint URL)
+    // LINK COMPARTIDO
     // ─────────────────────────────────────────────
     suspend fun openSharedLink(token: String, url: String): Result<FileItem> =
         withContext(Dispatchers.IO) {
 
             try {
-
                 val base64 = android.util.Base64.encodeToString(
                     url.toByteArray(),
                     android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP
                 )
 
                 val shareId = "u!$base64"
-
                 val resp = api.getDriveItemFromShare(bearer(token), shareId)
 
                 if (!resp.isSuccessful) {
@@ -154,7 +142,7 @@ class Repository(private val context: Context) {
     }
 
     // ─────────────────────────────────────────────
-    // SUBIDA ARCHIVO
+    // UPLOAD
     // ─────────────────────────────────────────────
     suspend fun uploadFile(
         token: String,
@@ -168,7 +156,6 @@ class Repository(private val context: Context) {
         var tmp: File? = null
 
         try {
-
             val finalName = customName?.ifBlank { null } ?: getFileName(uri)
 
             tmp = File(context.cacheDir, "up_${System.currentTimeMillis()}")
@@ -241,13 +228,11 @@ class Repository(private val context: Context) {
             return Result.Error("No se pudo crear sesión")
 
         val uploadUrl = sessionResp.body()!!.uploadUrl
-
         val fileSize = file.length()
         val chunkSize = 5 * 1024 * 1024
         var offset = 0L
 
         file.inputStream().use { stream ->
-
             while (offset < fileSize) {
 
                 val len = minOf(chunkSize.toLong(), fileSize - offset).toInt()
@@ -259,10 +244,7 @@ class Repository(private val context: Context) {
                 val req = Request.Builder()
                     .url(uploadUrl)
                     .put(chunk.toRequestBody("application/octet-stream".toMediaType()))
-                    .header(
-                        "Content-Range",
-                        "bytes $offset-${offset + len - 1}/$fileSize"
-                    )
+                    .header("Content-Range", "bytes $offset-${offset + len - 1}/$fileSize")
                     .build()
 
                 val resp = uploadClient.newCall(req).execute()
