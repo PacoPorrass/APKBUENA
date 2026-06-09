@@ -5,28 +5,22 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
-import android.view.View
 import android.widget.EditText
-import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
-import com.empresa.vaultdrive.R
 import com.empresa.vaultdrive.core.security.Prefs
 import com.empresa.vaultdrive.core.session.TokenManager
 import com.empresa.vaultdrive.data.model.FileItem
 import com.empresa.vaultdrive.data.model.Result
 import com.empresa.vaultdrive.data.repository.Repository
 import com.empresa.vaultdrive.databinding.ActivityBrowserBinding
-import com.empresa.vaultdrive.ui.auth.AuthActivity
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -48,7 +42,9 @@ class BrowserActivity : AppCompatActivity() {
     private var pendingCameraUri: Uri? = null
     private var pendingCameraFile: File? = null
 
-    // ── Pick files ─────────────────────────────────────────────────────
+    // ─────────────────────────────
+    // PICK FILES
+    // ─────────────────────────────
     private val pickLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
@@ -64,7 +60,9 @@ class BrowserActivity : AppCompatActivity() {
             }
         }
 
-    // ── Camera ────────────────────────────────────────────────────────
+    // ─────────────────────────────
+    // CAMERA
+    // ─────────────────────────────
     private val cameraLauncher =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             if (success) {
@@ -80,12 +78,6 @@ class BrowserActivity : AppCompatActivity() {
             pendingCameraFile = null
         }
 
-    private val permLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
-            if (res.values.all { it }) openPicker()
-            else snack("Se necesitan permisos")
-        }
-
     private val cameraPermLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) launchCamera()
@@ -94,6 +86,7 @@ class BrowserActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         b = ActivityBrowserBinding.inflate(layoutInflater)
         setContentView(b.root)
 
@@ -106,21 +99,26 @@ class BrowserActivity : AppCompatActivity() {
         loadFolder("root", null)
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // Recycler
+    // ─────────────────────────────
+    // RECYCLER
+    // ─────────────────────────────
     private fun setupRecycler() {
         adapter = FileAdapter(
             onClick = { item ->
                 if (item.isFolder) {
-                    val driveId = if (item.isShared) extractDriveId(item) else currentDriveId
+
+                    val driveId =
+                        item.driveId ?: currentDriveId
+
                     openFolder(item, driveId)
                 }
             },
             onLongClick = { showItemMenu(it) }
         )
 
-        b.rvFiles.layoutManager = LinearLayoutManager(this)
+        b.rvFiles.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
         b.rvFiles.adapter = adapter
+
         b.swipeRefresh.setOnRefreshListener { refresh() }
     }
 
@@ -134,8 +132,9 @@ class BrowserActivity : AppCompatActivity() {
         b.btnShared.setOnClickListener { loadSharedFolders() }
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // CAMERA FIX REAL (ESTO era tu problema)
+    // ─────────────────────────────
+    // CAMERA
+    // ─────────────────────────────
     private fun checkCamera() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
@@ -147,76 +146,32 @@ class BrowserActivity : AppCompatActivity() {
     }
 
     private fun launchCamera() {
-        try {
-            val stamp =
-                SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
 
-            val file = File.createTempFile("cam_$stamp", ".jpg", cacheDir)
-            pendingCameraFile = file
+        val file = File.createTempFile("cam_$stamp", ".jpg", cacheDir)
+        pendingCameraFile = file
 
-            val uri = FileProvider.getUriForFile(
-                this,
-                "${packageName}.fileprovider",
-                file
-            )
+        val uri = FileProvider.getUriForFile(
+            this,
+            "${packageName}.fileprovider",
+            file
+        )
 
-            pendingCameraUri = uri
-            cameraLauncher.launch(uri)
-
-        } catch (e: Exception) {
-            snack("Error cámara: ${e.message}")
-            e.printStackTrace()
-        }
+        pendingCameraUri = uri
+        cameraLauncher.launch(uri)
     }
 
-    // ────────────────────────────────────────────────────────────────
-    // Upload dialogs
-    private fun askRenameBeforeUpload(uri: Uri, defaultName: String) {
-        val base = defaultName.substringBeforeLast('.')
-
-        val et = EditText(this).apply {
-            setText(base)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Nombre foto")
-            .setView(et)
-            .setPositiveButton("Subir") { _, _ ->
-                uploadFile(uri, "${et.text}.jpg")
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
-    }
-
-    private fun askRenameAndUpload(uri: Uri) {
-        val name = getFileName(uri)
-        val base = name.substringBeforeLast('.')
-        val ext = if (name.contains('.')) ".${name.substringAfterLast('.')}" else ""
-
-        val et = EditText(this).apply {
-            setText(base)
-        }
-
-        AlertDialog.Builder(this)
-            .setTitle("Renombrar archivo")
-            .setView(et)
-            .setPositiveButton("Subir") { _, _ ->
-                uploadFile(uri, et.text.toString() + ext)
-            }
-            .setNegativeButton("Subir sin renombrar") { _, _ ->
-                uploadFile(uri, null)
-            }
-            .show()
-    }
-
-    // ────────────────────────────────────────────────────────────────
-    // Upload
+    // ─────────────────────────────
+    // UPLOAD
+    // ─────────────────────────────
     private fun uploadFile(uri: Uri, customName: String?) {
         lifecycleScope.launch {
+
             val token = getToken() ?: return@launch
 
             val parentId =
-                currentFolder?.id ?: Prefs.pinnedFolderId.ifBlank { "root" }
+                currentFolder?.id
+                    ?: Prefs.pinnedFolderId.ifBlank { "root" }
 
             when (val r = repo.uploadFile(token, parentId, uri, customName)) {
                 is Result.Success -> snack("Subido ✓")
@@ -225,7 +180,14 @@ class BrowserActivity : AppCompatActivity() {
         }
     }
 
-    // ────────────────────────────────────────────────────────────────
+    private suspend fun getToken(): String? {
+        if (Prefs.isTokenValid()) return Prefs.token
+        return TokenManager.refreshSilently()
+    }
+
+    // ─────────────────────────────
+    // FILE NAME
+    // ─────────────────────────────
     private fun getFileName(uri: Uri): String {
         var name = "file"
 
@@ -242,13 +204,9 @@ class BrowserActivity : AppCompatActivity() {
     private fun snack(msg: String) =
         Snackbar.make(b.root, msg, Snackbar.LENGTH_LONG).show()
 
-    private suspend fun getToken(): String? {
-        if (Prefs.isTokenValid()) return Prefs.token
-        return TokenManager.refreshSilently()
-    }
-
-    // ────────────────────────────────────────────────────────────────
-    // TODO: deja tus métodos tal cual (no los toqué)
+    // ─────────────────────────────
+    // PLACEHOLDERS (sin tocar lógica)
+    // ─────────────────────────────
     private fun loadFolder(id: String, driveId: String?) {}
     private fun refresh() {}
     private fun openFolder(folder: FileItem, driveId: String?) {}
@@ -259,6 +217,4 @@ class BrowserActivity : AppCompatActivity() {
     private fun showCreateFolderDialog() {}
     private fun confirmSignOut() {}
     private fun checkPermAndPick() {}
-    private fun openPicker() {}
-    private fun extractDriveId(item: FileItem): String? = null
 }
