@@ -19,7 +19,9 @@ object TokenManager {
     // ✅ SOLO USER.READ (evita admin consent)
     val SCOPES = arrayOf(
     "User.Read",
-    "Files.ReadWrite"
+"Files.ReadWrite",
+"Files.Read.All",
+"Sites.Read.All"
 )
 
     private var msalApp: ISingleAccountPublicClientApplication? = null
