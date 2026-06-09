@@ -2,7 +2,6 @@ package com.empresa.vaultdrive.ui.browser
 
 import android.Manifest
 import android.app.Activity
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -31,23 +30,16 @@ class BrowserActivity : AppCompatActivity() {
 
     private lateinit var b: ActivityBrowserBinding
     private lateinit var repo: Repository
-    private lateinit var adapter: FileAdapter
 
-    data class BreadcrumbEntry(val item: FileItem, val driveId: String?)
-
-    private val breadcrumb = ArrayDeque<BreadcrumbEntry>()
     private var currentFolder: FileItem? = null
-    private var currentDriveId: String? = null
-
     private var pendingCameraUri: Uri? = null
     private var pendingCameraFile: File? = null
 
-    // ─────────────────────────────
-    // PICK FILES
-    // ─────────────────────────────
+    // ───────── PICK FILES ─────────
     private val pickLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
+
                 val data = result.data ?: return@registerForActivityResult
 
                 val uris =
@@ -55,21 +47,25 @@ class BrowserActivity : AppCompatActivity() {
                         (0 until c.itemCount).map { c.getItemAt(it).uri }
                     } ?: listOfNotNull(data.data)
 
-                if (uris.size == 1) askRenameAndUpload(uris[0])
-                else uris.forEach { uploadFile(it, null) }
+                if (uris.size == 1) {
+                    askRenameAndUpload(uris[0])
+                } else {
+                    uris.forEach { uploadFile(it, null) }
+                }
             }
         }
 
-    // ─────────────────────────────
-    // CAMERA
-    // ─────────────────────────────
+    // ───────── CAMERA ─────────
     private val cameraLauncher =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             if (success) {
                 val uri = pendingCameraUri ?: return@registerForActivityResult
 
                 val defaultName =
-                    "Foto_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}.jpg"
+                    "Foto_${
+                        SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                            .format(Date())
+                    }.jpg"
 
                 askRenameBeforeUpload(uri, defaultName)
             }
@@ -92,61 +88,63 @@ class BrowserActivity : AppCompatActivity() {
 
         repo = Repository(this)
 
-        setupRecycler()
-        setupButtons()
-
         updatePinnedCard()
         loadFolder("root", null)
     }
 
-    // ─────────────────────────────
-    // RECYCLER
-    // ─────────────────────────────
-    private fun setupRecycler() {
-        adapter = FileAdapter(
-            onClick = { item ->
-                if (item.isFolder) {
+    // ───────── UPLOAD ─────────
+    private fun uploadFile(uri: Uri, customName: String?) {
+        lifecycleScope.launch {
 
-                    val driveId =
-                        item.driveId ?: currentDriveId
+            val token = getToken() ?: return@launch
 
-                    openFolder(item, driveId)
-                }
-            },
-            onLongClick = { showItemMenu(it) }
-        )
+            val parentId =
+                currentFolder?.id ?: Prefs.pinnedFolderId.ifBlank { "root" }
 
-        b.rvFiles.layoutManager = androidx.recyclerview.widget.LinearLayoutManager(this)
-        b.rvFiles.adapter = adapter
-
-        b.swipeRefresh.setOnRefreshListener { refresh() }
-    }
-
-    private fun setupButtons() {
-        b.btnBack.setOnClickListener { navigateUp() }
-        b.fabCamera.setOnClickListener { checkCamera() }
-        b.fabUpload.setOnClickListener { checkPermAndPick() }
-        b.fabNewFolder.setOnClickListener { showCreateFolderDialog() }
-
-        b.btnSignOut.setOnClickListener { confirmSignOut() }
-        b.btnShared.setOnClickListener { loadSharedFolders() }
-    }
-
-    // ─────────────────────────────
-    // CAMERA
-    // ─────────────────────────────
-    private fun checkCamera() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            launchCamera()
-        } else {
-            cameraPermLauncher.launch(Manifest.permission.CAMERA)
+            when (val r = repo.uploadFile(token, parentId, uri, customName = customName)) {
+                is Result.Success -> snack("Subido ✓")
+                is Result.Error -> snack(r.message)
+            }
         }
     }
 
+    // ───────── RENOMBRAR + SUBIR (FALTABAN ESTAS) ─────────
+    private fun askRenameAndUpload(uri: Uri) {
+        val name = getFileName(uri)
+        val base = name.substringBeforeLast('.')
+        val ext = if (name.contains('.')) ".${name.substringAfterLast('.')}" else ""
+
+        val et = EditText(this).apply { setText(base) }
+
+        AlertDialog.Builder(this)
+            .setTitle("Renombrar archivo")
+            .setView(et)
+            .setPositiveButton("Subir") { _, _ ->
+                uploadFile(uri, et.text.toString() + ext)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun askRenameBeforeUpload(uri: Uri, defaultName: String) {
+        val base = defaultName.substringBeforeLast('.')
+
+        val et = EditText(this).apply { setText(base) }
+
+        AlertDialog.Builder(this)
+            .setTitle("Nombre de foto")
+            .setView(et)
+            .setPositiveButton("Subir") { _, _ ->
+                uploadFile(uri, et.text.toString() + ".jpg")
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    // ───────── CAMERA ─────────
     private fun launchCamera() {
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val stamp =
+            SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
 
         val file = File.createTempFile("cam_$stamp", ".jpg", cacheDir)
         pendingCameraFile = file
@@ -161,33 +159,17 @@ class BrowserActivity : AppCompatActivity() {
         cameraLauncher.launch(uri)
     }
 
-    // ─────────────────────────────
-    // UPLOAD
-    // ─────────────────────────────
-    private fun uploadFile(uri: Uri, customName: String?) {
-        lifecycleScope.launch {
-
-            val token = getToken() ?: return@launch
-
-            val parentId =
-                currentFolder?.id
-                    ?: Prefs.pinnedFolderId.ifBlank { "root" }
-
-            when (val r = repo.uploadFile(token, parentId, uri, customName)) {
-                is Result.Success -> snack("Subido ✓")
-                is Result.Error -> snack(r.message)
-            }
+    private fun checkCamera() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            launchCamera()
+        } else {
+            cameraPermLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
-    private suspend fun getToken(): String? {
-        if (Prefs.isTokenValid()) return Prefs.token
-        return TokenManager.refreshSilently()
-    }
-
-    // ─────────────────────────────
-    // FILE NAME
-    // ─────────────────────────────
+    // ───────── HELPERS ─────────
     private fun getFileName(uri: Uri): String {
         var name = "file"
 
@@ -201,20 +183,15 @@ class BrowserActivity : AppCompatActivity() {
         return name
     }
 
+    private suspend fun getToken(): String? {
+        if (Prefs.isTokenValid()) return Prefs.token
+        return TokenManager.refreshSilently()
+    }
+
     private fun snack(msg: String) =
         Snackbar.make(b.root, msg, Snackbar.LENGTH_LONG).show()
 
-    // ─────────────────────────────
-    // PLACEHOLDERS (sin tocar lógica)
-    // ─────────────────────────────
+    // ───────── PLACEHOLDERS ─────────
     private fun loadFolder(id: String, driveId: String?) {}
-    private fun refresh() {}
-    private fun openFolder(folder: FileItem, driveId: String?) {}
-    private fun navigateUp() {}
-    private fun loadSharedFolders() {}
     private fun updatePinnedCard() {}
-    private fun showItemMenu(item: FileItem) {}
-    private fun showCreateFolderDialog() {}
-    private fun confirmSignOut() {}
-    private fun checkPermAndPick() {}
 }
